@@ -1,0 +1,58 @@
+// lab2.c
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+static void strip_newline(char *s) {
+  size_t n = strlen(s);
+  if (n > 0 && s[n - 1] == '\n') {
+    s[n - 1] = '\0';
+  }
+}
+
+int main(void) {
+  char path[4096];
+
+  while (1) {
+    printf("Enter programs to run.\n> ");
+    fflush(stdout);
+
+    if (fgets(path, sizeof(path), stdin) == NULL) {
+      // EOF or read error: exit cleanly
+      printf("\n");
+      return 0;
+    }
+
+    strip_newline(path);
+
+    // Ignore empty input
+    if (path[0] == '\0') {
+      continue;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+      perror("fork");
+      continue;
+    }
+
+    if (pid == 0) {
+      // Child: execute the program (no args required by lab)
+      execl(path, path, (char *)NULL);
+
+      // If exec returns, it failed
+      (void)errno; // keep clang-tidy happy if errno unused
+      fprintf(stderr, "Exec failure\n");
+      _exit(127);
+    }
+
+    // Parent: wait for child to finish
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+      perror("waitpid");
+    }
+  }
+}
+

@@ -1,0 +1,99 @@
+// lab3.c
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define HISTORY_SIZE 5
+
+// returns 1 if s is exactly "print" (ignoring the trailing '\n' from getline)
+static int is_print_command(const char *s) {
+  if (s == NULL) return 0;
+
+  size_t n = strlen(s);
+
+  // If getline read a newline, ignore it for comparison
+  if (n > 0 && s[n - 1] == '\n') n--;
+
+  return (n == 5 && strncmp(s, "print", 5) == 0);
+}
+
+// add a copy of the line into the ring buffer
+static void add_history(char *history[], int *next, int *count, const char *line) {
+  // make a heap copy of the input line
+  char *copy = strdup(line);
+  if (copy == NULL) {
+    perror("strdup");
+    exit(1);
+  }
+
+  // free old entry if we are overwriting it
+  if (history[*next] != NULL) {
+    free(history[*next]);
+  }
+
+  history[*next] = copy;
+
+  // move next forward in a circle
+  *next = (*next + 1) % HISTORY_SIZE;
+
+  // count goes up until it hits 5
+  if (*count < HISTORY_SIZE) {
+    (*count)++;
+  }
+}
+
+// print the last 'count' lines, oldest to newest
+static void print_history(char *history[], int next, int count) {
+  int start;
+
+  if (count < HISTORY_SIZE) {
+    start = 0;      // not full yet, oldest is at 0
+  } else {
+    start = next;   // full: next points to where we'd overwrite, so it's the oldest
+  }
+
+  for (int i = 0; i < count; i++) {
+    int idx = (start + i) % HISTORY_SIZE;
+    // lines already include newline (except maybe last line at EOF), so print as-is
+    printf("%s", history[idx]);
+  }
+}
+
+int main(void) {
+  char *history[HISTORY_SIZE];
+  for (int i = 0; i < HISTORY_SIZE; i++) history[i] = NULL;
+
+  int next = 0;   // where to write next
+  int count = 0;  // how many valid lines we have (0..5)
+
+  char *line = NULL;
+  size_t cap = 0;
+
+  while (1) {
+    printf("Enter input: ");
+    fflush(stdout);
+
+    ssize_t got = getline(&line, &cap, stdin);
+    if (got == -1) {
+      // EOF or read error
+      printf("\n");
+      break;
+    }
+
+    add_history(history, &next, &count, line);
+
+    if (is_print_command(line)) {
+      print_history(history, next, count);
+    }
+  }
+
+  // cleanup (Ctrl+C won't run this, but EOF will)
+  for (int i = 0; i < HISTORY_SIZE; i++) {
+    free(history[i]);
+  }
+  free(line);
+
+  return 0;
+}
+
