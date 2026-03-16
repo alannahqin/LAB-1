@@ -1,0 +1,197 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include "uthash.h"
+
+#define MAX_WORD 64
+
+
+// hash table entry
+struct word_count {
+    char word[MAX_WORD];
+    int count;
+    UT_hash_handle hh;
+};
+
+
+// chunk of words for a thread
+struct chunk {
+    char **words;
+    size_t start;
+    size_t end;
+};
+
+
+// arguments passed to each thread
+struct thread_args {
+    struct chunk *chunk;
+    struct word_count **table;
+    pthread_mutex_t *mutex;
+};
+
+
+// comparison function for sorting
+int cmp_words(struct word_count *a, struct word_count *b)
+{
+    return strcmp(a->word, b->word);
+}
+
+
+// print table
+void print_word_counts(struct word_count *table)
+{
+    struct word_count *entry;
+
+    printf("%-20s %s\n", "Word", "Count");
+
+    for (entry = table; entry != NULL; entry = entry->hh.next) {
+        printf("%-20s %d\n", entry->word, entry->count);
+    }
+}
+
+
+// add words from chunk to table (thread safe)
+void add_word_counts_in_chunk(struct chunk *chunk,
+                              struct word_count **table,
+                              pthread_mutex_t *mutex)
+{
+    for (size_t i = chunk->start; i < chunk->end; i++) {
+
+        char *word = chunk->words[i];
+
+        pthread_mutex_lock(mutex);
+
+        struct word_count *entry;
+
+        HASH_FIND_STR(*table, word, entry);
+
+        if (entry == NULL) {
+            entry = malloc(sizeof(struct word_count));
+            strcpy(entry->word, word);
+            entry->count = 1;
+            HASH_ADD_STR(*table, word, entry);
+        }
+        else {
+            entry->count++;
+        }
+
+        pthread_mutex_unlock(mutex);
+    }
+}
+
+
+// thread function
+void *counter_thread_func(void *arg)
+{
+    struct thread_args *args = arg;
+
+    add_word_counts_in_chunk(args->chunk,
+                             args->table,
+                             args->mutex);
+
+    return NULL;
+}
+
+
+// helper to pack arguments
+struct thread_args *pack_args(struct chunk *chunk,
+                              struct word_count **table,
+                              pthread_mutex_t *mutex)
+{
+    struct thread_args *args = malloc(sizeof(struct thread_args));
+
+    args->chunk = chunk;
+    args->table = table;
+    args->mutex = mutex;
+
+    return args;
+}
+
+
+// parallel word counting
+void count_words_parallel(struct word_count **table,
+                          struct chunk *chunks,
+                          size_t num_threads)
+{
+    pthread_t threads[num_threads];
+    struct thread_args *threads_args[num_threads];
+
+    pthread_mutex_t count_mutex;
+    pthread_mutex_init(&count_mutex, NULL);
+
+
+    // create threads
+    for (size_t i = 0; i < num_threads; i++) {
+
+        threads_args[i] = pack_args(&chunks[i], table, &count_mutex);
+
+        pthread_create(&threads[i],
+                       NULL,
+                       counter_thread_func,
+                       threads_args[i]);
+    }
+
+
+    // wait for threads
+    for (size_t i = 0; i < num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+
+    // free args
+    for (size_t i = 0; i < num_threads; i++) {
+        free(threads_args[i]);
+    }
+
+    pthread_mutex_destroy(&count_mutex);
+}
+
+
+// main program
+int main()
+{
+    struct word_count *table = NULL;
+
+    char *words[] = {
+        "the","quick","brown","fox",
+        "jumps","over","the","lazy","dog",
+        "the","quick","brown","fox",
+        "the"
+    };
+
+    size_t total = sizeof(words) / sizeof(words[0]);
+
+    size_t num_threads = 2;
+
+    struct chunk chunks[2];
+
+    chunks[0].words = words;
+    chunks[0].start = 0;
+    chunks[0].end = total / 2;
+
+    chunks[1].words = words;
+    chunks[1].start = total / 2;
+    chunks[1].end = total;
+
+
+    count_words_parallel(&table, chunks, num_threads);
+
+
+    // sort table
+    HASH_SORT(table, cmp_words);
+
+    print_word_counts(table);
+
+
+    // free table
+    struct word_count *cur, *tmp;
+
+    HASH_ITER(hh, table, cur, tmp) {
+        HASH_DEL(table, cur);
+        free(cur);
+    }
+
+    return 0;
+}
+
