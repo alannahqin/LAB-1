@@ -1,0 +1,198 @@
+
+/*
+ client.c
+  1 #include <arpa/inet.h>
+  2 #include <stdio.h>
+  3 #include <stdlib.h>
+  4 #include <string.h>
+  5 #include <sys/socket.h>
+  6 #include <unistd.h>
+  7
+  8 #define PORT 8000
+  9 #define BUF_SIZE 64
+ 10 #define ADDR "127.0.0.1"
+ 11
+ 12
+ 13 Questions to answer at top of client.c:
+ 14 (You should not need to change the code in client.c)
+ 15 1. What is the address of the server it is trying to connect to (IP address
+and 16 port number). The server address is 127.0.0.1 and the port is 8000. 17
+ 18 2. Is it UDP or TCP? How do you know?
+ 19 It is TCP because the socket is created using SOCK_STREAM.
+ 20
+ 21 3. The client is going to send some data to the server. Where does it get
+this 22 data from? How can you tell in the code? 23 The data comes from the
+terminal (user input), because the program reads from STDIN_FILENO using read().
+ 24
+ 25 4. How does the client program end? How can you tell that in the
+   code?
+ 26 The program ends when the read loop stops, which happens when read() returns
+1 27 or less. After that it closes the socket with close(sfd) and exits. 28 29
+ 30
+ 31 #define handle_error(msg) \
+ 32 ┆ do { \
+ 33 ┆ ┆ perror(msg); \
+ 34 ┆ ┆ exit(EXIT_FAILURE); \ 35 ┆ } while (0) 36 37 int main() { 38 ┆ struct
+sockaddr_in addr; 39 ┆ int sfd; 40 ┆ ssize_t num_read; 41 ┆ char buf[BUF_SIZE];
+ 42 ┆
+ 43 ┆ sfd = socket(AF_INET, SOCK_STREAM, 0);
+ 44 ┆ if (sfd == -1) {
+ 45 ┆ ┆ handle_error("socket");
+ 46 ┆ }
+ 47 ┆
+ 48 ┆ memset(&addr, 0, sizeof(struct sockaddr_in));
+ 49 ┆ addr.sin_family = AF_INET;
+ 50 ┆ addr.sin_port = htons(PORT);
+ 51 ┆ if (inet_pton(AF_INET, ADDR, &addr.sin_addr) <= 0) {
+ 52 ┆ ┆ handle_error("inet_pton");
+ 53 ┆ }
+ 54 ┆
+ 55 ┆ int res = connect(sfd, (struct sockaddr *)&addr, sizeof(struct
+sockaddr_in)); 56 ┆ if (res == -1) { 57 ┆ ┆ handle_error("connect"); 58 ┆ } 59 ┆
+ 60 ┆ while ((num_read = read(STDIN_FILENO, buf, BUF_SIZE)) > 1) {
+ 61 ┆ ┆ if (write(sfd, buf, num_read) != num_read) {
+ 62 ┆ ┆ ┆ handle_error("write");
+ 63 ┆ ┆ }
+ 64 ┆ ┆ printf("Just sent %zd bytes.\n", num_read);
+ 65 ┆ }
+ 66 ┆
+ 67 ┆ if (num_read == -1) {
+ 68 ┆ ┆ handle_error("read");
+ 69 ┆ }
+ 70 ┆
+ 71 ┆ close(sfd);
+ 72 ┆ exit(EXIT_SUCCESS);
+ 73 }
+~
+ server.c
+  1 #include <arpa/inet.h>
+  2 #include <errno.h>
+  3 #include <pthread.h>
+  4 #include <stdio.h>
+  5 #include <stdlib.h>
+  6 #include <string.h>
+  7 #include <sys/socket.h>
+  8 #include <unistd.h>
+  9
+ 10 #define BUF_SIZE 64
+ 11 #define PORT 8000
+ 12 #define LISTEN_BACKLOG 32
+ 13
+ 14 #define handle_error(msg) \
+ 15 ┆ do { \
+ 16 ┆ ┆ perror(msg); \
+ 17 ┆ ┆ exit(EXIT_FAILURE); \ 18 ┆ } while (0) 19 20 // Shared counters for:
+total # messages, and counter of clients (used for 21 // assigning client IDs)
+ 22 int total_message_count = 0;
+ 23 int client_id_counter = 1;
+ 24
+ 25 // Mutexs to protect above global state.
+ 26 pthread_mutex_t count_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 27 pthread_mutex_t client_id_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 28
+ 29 struct client_info {
+ 30 ┆ int cfd;
+ 31 ┆ int client_id;
+ 32 };
+ 33
+ 34 void *handle_client(void *arg) {
+ 35 ┆ struct client_info *client = (struct client_info *)arg;
+ 36 ┆
+ 37 ┆ // TODO
+ 38 ┆ int cfd = client->cfd;
+ 39 ┆ int client_id = client->client_id;
+ 40 ┆ ssize_t num_read;
+ 41 ┆ char buf[BUF_SIZE];
+ 42 ┆ int msg_num;
+ 43 ┆
+ 44 ┆ free(client);
+ 45 ┆
+ 46 ┆ while ((num_read = read(cfd, buf, BUF_SIZE - 1)) > 0) {
+ 47 ┆ ┆ buf[num_read] = '\0';
+ 48 ┆ ┆
+ 49 ┆ ┆ if (buf[num_read - 1] == '\n') {
+ 50 ┆ ┆ ┆ buf[num_read - 1] = '\0';
+ 51 ┆ ┆ }
+ 52 ┆ ┆
+ 53 ┆ ┆ pthread_mutex_lock(&count_mutex);
+ 54 ┆ ┆ total_message_count++;
+ 55 ┆ ┆ msg_num = total_message_count;
+ 56 ┆ ┆ pthread_mutex_unlock(&count_mutex);
+ 57 ┆ ┆
+ 58 ┆ ┆ printf("Msg #%4d; Client ID %d: %s\n", msg_num, client_id, buf);
+ 59 ┆ }
+ 60 ┆
+ 61 ┆ if (num_read == -1) {
+ 62 ┆ ┆ perror("read");
+ 63 ┆ }
+ 64 ┆
+ 65 ┆ printf("Ending thread for client %d\n", client_id);
+ 66 ┆
+ 67 ┆ if (close(cfd) == -1) {
+ 68 ┆ ┆ perror("close");
+ 69 ┆ }
+ 70 ┆
+ 71 ┆ return NULL;
+ 72 }
+ 73
+ 74 int main() {
+ 75 ┆ struct sockaddr_in addr;
+ 76 ┆ int sfd;
+ 77 ┆
+ 78 ┆ sfd = socket(AF_INET, SOCK_STREAM, 0);
+ 79 ┆ if (sfd == -1) {
+ 80 ┆ ┆ handle_error("socket");
+ 81 ┆ }
+ 82 ┆
+ 83 ┆ memset(&addr, 0, sizeof(struct sockaddr_in));
+ 84 ┆ addr.sin_family = AF_INET;
+ 85 ┆ addr.sin_port = htons(PORT);
+ 86 ┆ addr.sin_addr.s_addr = htonl(INADDR_ANY);
+ 87 ┆
+ 88 ┆ if (bind(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in)) == -1)
+{ 89 ┆ ┆ handle_error("bind"); 90 ┆ } 91 ┆ 92 ┆ if (listen(sfd, LISTEN_BACKLOG)
+== -1) { 93 ┆ ┆ handle_error("listen"); 94 ┆ } 95 ┆ 96 ┆ for (;;) { 97 ┆ ┆ //
+TODO 98 ┆ ┆ int cfd; 99 ┆ ┆ pthread_t tid; 100 ┆ ┆ struct client_info *client;
+101 ┆ ┆
+102 ┆ ┆ cfd = accept(sfd, NULL, NULL);
+103 ┆ ┆ if (cfd == -1) {
+104 ┆ ┆ ┆ perror("accept");
+105 ┆ ┆ ┆ continue;
+106 ┆ ┆ }
+107 ┆ ┆
+108 ┆ ┆ client = malloc(sizeof(struct client_info));
+109 ┆ ┆ if (client == NULL) {
+110 ┆ ┆ ┆ perror("malloc");
+111 ┆ ┆ ┆ close(cfd);
+112 ┆ ┆ ┆ continue;
+113 ┆ ┆ }
+114 ┆ ┆
+115 ┆ ┆ pthread_mutex_lock(&client_id_mutex);
+116 ┆ ┆ client->client_id = client_id_counter;
+117 ┆ ┆ client_id_counter++;
+118 ┆ ┆ pthread_mutex_unlock(&client_id_mutex);
+119 ┆ ┆
+120 ┆ ┆ client->cfd = cfd;
+121 ┆ ┆
+122 ┆ ┆ printf("New client created! ID %d on socket FD %d\n", client->client_id,
+123 ┆ ┆ ┆ ┆ ┆  client->cfd);
+124 ┆ ┆
+125 ┆ ┆ if (pthread_create(&tid, NULL, handle_client, client) != 0) {
+126 ┆ ┆ ┆ perror("pthread_create");
+127 ┆ ┆ ┆ close(cfd);
+128 ┆ ┆ ┆ free(client);
+129 ┆ ┆ ┆ continue;
+130 ┆ ┆ }
+131 ┆ ┆
+132 ┆ ┆ if (pthread_detach(tid) != 0) {
+133 ┆ ┆ ┆ perror("pthread_detach");
+134 ┆ ┆ }
+135 ┆ }
+136 ┆
+137 ┆ if (close(sfd) == -1) {
+138 ┆ ┆ handle_error("close");
+139 ┆ }
+140 ┆
+141 ┆ return 0;
+142 }
+*/

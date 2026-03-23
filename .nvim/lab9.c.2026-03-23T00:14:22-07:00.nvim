@@ -1,0 +1,79 @@
+ 
+/*
+ client.c
+  1 #include <arpa/inet.h>
+  2 #include <stdio.h>
+  3 #include <stdlib.h>
+  4 #include <string.h>
+  5 #include <sys/socket.h>
+  6 #include <unistd.h>
+  7
+  8 #define PORT 8000
+  9 #define BUF_SIZE 64
+ 10 #define ADDR "127.0.0.1"
+ 11
+ 12 
+ 13 Questions to answer at top of client.c:
+ 14 (You should not need to change the code in client.c)
+ 15 1. What is the address of the server it is trying to connect to (IP address and
+ 16 port number). The server address is 127.0.0.1 and the port is 8000.
+ 17
+ 18 2. Is it UDP or TCP? How do you know?
+ 19 It is TCP because the socket is created using SOCK_STREAM.
+ 20
+ 21 3. The client is going to send some data to the server. Where does it get this
+ 22 data from? How can you tell in the code? The data comes from the terminal (user
+ 23 input), because the program reads from STDIN_FILENO using read().
+ 24
+ 25 4. How does the client program end? How can you tell that in the code?
+ 26 The program ends when the read loop stops, which happens when read() returns 1
+ 27 or less. After that it closes the socket with close(sfd) and exits.
+ 28
+ 29 
+ 30
+ 31 #define handle_error(msg)                                                      \
+ 32 ┆ do {                                                                         \
+ 33 ┆ ┆ perror(msg);                                                               \
+ 34 ┆ ┆ exit(EXIT_FAILURE);                                                        \
+ 35 ┆ } while (0)
+ 36
+ 37 int main() {
+ 38 ┆ struct sockaddr_in addr;
+ 39 ┆ int sfd;
+ 40 ┆ ssize_t num_read;
+ 41 ┆ char buf[BUF_SIZE];
+ 42 ┆
+ 43 ┆ sfd = socket(AF_INET, SOCK_STREAM, 0);
+ 44 ┆ if (sfd == -1) {
+ 45 ┆ ┆ handle_error("socket");
+ 46 ┆ }
+ 47 ┆
+ 48 ┆ memset(&addr, 0, sizeof(struct sockaddr_in));
+ 49 ┆ addr.sin_family = AF_INET;
+ 50 ┆ addr.sin_port = htons(PORT);
+ 51 ┆ if (inet_pton(AF_INET, ADDR, &addr.sin_addr) <= 0) {
+ 52 ┆ ┆ handle_error("inet_pton");
+ 53 ┆ }
+ 54 ┆
+ 55 ┆ int res = connect(sfd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
+ 56 ┆ if (res == -1) {
+ 57 ┆ ┆ handle_error("connect");
+ 58 ┆ }
+ 59 ┆
+ 60 ┆ while ((num_read = read(STDIN_FILENO, buf, BUF_SIZE)) > 1) {
+ 61 ┆ ┆ if (write(sfd, buf, num_read) != num_read) {
+ 62 ┆ ┆ ┆ handle_error("write");
+ 63 ┆ ┆ }
+ 64 ┆ ┆ printf("Just sent %zd bytes.\n", num_read);
+ 65 ┆ }
+ 66 ┆
+ 67 ┆ if (num_read == -1) {
+ 68 ┆ ┆ handle_error("read");
+ 69 ┆ }
+ 70 ┆
+ 71 ┆ close(sfd);
+ 72 ┆ exit(EXIT_SUCCESS);
+ 73 }
+~
+*/
+
