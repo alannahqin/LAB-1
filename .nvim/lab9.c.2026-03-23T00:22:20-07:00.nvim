@@ -22,8 +22,7 @@ and port number). The server address is 127.0.0.1 and the port is 8000.
 
  3. The client is going to send some data to the server. Where does it get
 this data from? How can you tell in the code?
- The data comes from the terminal (user input), because the program reads from
-STDIN_FILENO using read().
+ The data comes from the terminal (user input), because the program reads from STDIN_FILENO using read().
 
  4. How does the client program end? How can you tell that in the code?
  The program ends when the read loop stops, which happens when read() returns
